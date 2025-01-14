@@ -1,17 +1,21 @@
+import 'dart:convert';  
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:table_calendar/table_calendar.dart';
-import 'notification_service.dart';  // 알림 서비스 추가
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:table_calendar/table_calendar.dart';
 
 class Todo {
   String title;
   bool isDone;
+  DateTime? alarmTime;
 
   Todo({
     required this.title,
     this.isDone = false,
+    this.alarmTime,
   });
 }
 
@@ -23,12 +27,12 @@ class TodoProvider with ChangeNotifier {
     return _todos[normalizedDate] ?? [];
   }
 
-  Future<void> addTodo(DateTime date, String title) async {
+  Future<void> addTodo(DateTime date, String title, {DateTime? alarmTime}) async {
     final DateTime normalizedDate = DateTime(date.year, date.month, date.day);
     if (_todos[normalizedDate] == null) {
       _todos[normalizedDate] = [];
     }
-    _todos[normalizedDate]!.add(Todo(title: title));
+    _todos[normalizedDate]!.add(Todo(title: title, alarmTime: alarmTime));
     await _saveData(); // 데이터 저장
     notifyListeners();
   }
@@ -60,6 +64,7 @@ class TodoProvider with ChangeNotifier {
           return Todo(
             title: item['title'],
             isDone: item['isDone'],
+            alarmTime: item['alarmTime'] != null ? DateTime.parse(item['alarmTime']) : null,
           );
         }).toList();
         _todos[date] = todoList;
@@ -74,28 +79,24 @@ class TodoProvider with ChangeNotifier {
     final Map<String, dynamic> jsonData = {};
     _todos.forEach((key, value) {
       jsonData[key.toIso8601String()] = value
-          .map((todo) => {'title': todo.title, 'isDone': todo.isDone})
+          .map((todo) => {
+                'title': todo.title,
+                'isDone': todo.isDone,
+                'alarmTime': todo.alarmTime?.toIso8601String(),
+              })
           .toList();
     });
-    await prefs.setString('todos', jsonEncode(jsonData));
+    await prefs.setString('todos', jsonEncode(jsonData));  
   }
 }
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 알림 권한 요청
-  await NotificationService.requestPermissions();  // 권한 요청 추가
-
-  // 알림 서비스 초기화
-  await NotificationService.init();
-
   final todoProvider = TodoProvider();
-  await todoProvider.loadTodos();  // 데이터 로딩 추가
+  await todoProvider.loadTodos();  // 데이터 로딩
   runApp(
     ChangeNotifierProvider(
-      create: (_) => todoProvider,  // TodoProvider를 초기화
+      create: (_) => todoProvider,
       child: MyApp(),
     ),
   );
@@ -107,7 +108,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TODO App with Calendar',
+      title: 'TODO',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
@@ -128,47 +129,73 @@ class _TodoScreenState extends State<TodoScreen> {
   late DateTime _focusedDay;
   DateTime? _alarmTime;
   bool _isAlarmSet = false;
+  File? _imageFile;  // 이미지 파일
+  bool _isImageOptionsVisible = false;  // 이미지 관련 옵션 메뉴의 표시 여부
+  bool _isOpacityControlVisible = false;  // 투명도 조절 메뉴의 표시 여부
+  double _opacity = 1.0;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = DateTime.now();
     _focusedDay = DateTime.now();
+    _loadImage();
+    _loadOpacity();  // 앱 시작 시 저장된 투명도 값을 불러옴
   }
 
-  // 날짜 선택
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDay,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null && picked != _selectedDay) {
+  // 이미지 파일 로드 (앱 실행 시 이미지 경로 불러오기)
+  Future<void> _loadImage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final imagePath = prefs.getString('imagePath');
+    if (imagePath != null) {
       setState(() {
-        _selectedDay = picked;
+        _imageFile = File(imagePath);
       });
     }
   }
 
-  // 시간 선택
-  Future<void> _selectTime(BuildContext context) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_selectedDay),
-    );
-    if (picked != null) {
+  // 이미지 선택
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      final appDir = await getApplicationDocumentsDirectory();
+      final fileName = pickedFile.name;
+      final savedImage = await File(pickedFile.path).copy('${appDir.path}/$fileName');
+
+      // 선택한 이미지 경로를 SharedPreferences에 저장
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('imagePath', savedImage.path);
+
       setState(() {
-        _alarmTime = DateTime(
-          _selectedDay.year,
-          _selectedDay.month,
-          _selectedDay.day,
-          picked.hour,
-          picked.minute,
-        );
-        _isAlarmSet = true;
+        _imageFile = savedImage;
       });
     }
+  }
+
+  // 투명도 값 저장
+  Future<void> _saveOpacity(double opacity) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('opacity', opacity);
+  }
+
+  // 저장된 투명도 값 로드
+  Future<void> _loadOpacity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedOpacity = prefs.getDouble('opacity');
+    if (savedOpacity != null) {
+      setState(() {
+        _opacity = savedOpacity;
+      });
+    }
+  }
+
+  // 이미지 투명도 조절
+  void _adjustOpacity(double opacity) {
+    setState(() {
+      _opacity = opacity;
+    });
+    _saveOpacity(opacity);  // 투명도 값 저장
   }
 
   @override
@@ -178,71 +205,130 @@ class _TodoScreenState extends State<TodoScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('TODO App with Calendar'),
+        title: Text('TODO'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.image),
+            onPressed: () {
+              setState(() {
+                _isImageOptionsVisible = !_isImageOptionsVisible;
+              });
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
-          // 달력 위젯
-          TableCalendar(
-            firstDay: DateTime.utc(2020, 1, 1),
-            lastDay: DateTime.utc(2030, 12, 31),
-            focusedDay: _focusedDay,
-            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-            onDaySelected: (selectedDay, focusedDay) {
-              setState(() {
-                _selectedDay = selectedDay;
-                _focusedDay = focusedDay;
-              });
-            },
-            onPageChanged: (focusedDay) {
-              _focusedDay = focusedDay;
-            },
-          ),
-          // 할 일 입력
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: todoController,
-                    decoration: InputDecoration(
-                      hintText: 'Enter your task for ${_selectedDay.toLocal()}',
+          // 이미지 선택 및 투명도 조절 옵션
+          if (_isImageOptionsVisible)
+            Container(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  ListTile(
+                    title: Text('이미지 선택'),
+                    onTap: _pickImage,  // 이미지 선택
+                  ),
+                  ListTile(
+                    title: Text('투명도 조절'),
+                    onTap: () {
+                      setState(() {
+                        _isOpacityControlVisible = !_isOpacityControlVisible;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          // 투명도 조절 슬라이더
+          if (_isOpacityControlVisible)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Text("투명도: "),
+                  Expanded(
+                    child: Slider(
+                      value: _opacity,
+                      min: 0.0,
+                      max: 1.0,
+                      onChanged: _adjustOpacity,
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.alarm),
-                  onPressed: () async {
-                    // 알람 설정 버튼
-                    await _selectDate(context);
-                    await _selectTime(context);
-                  },
-                ),
-                IconButton(
-                  icon: Icon(Icons.add),
-                  onPressed: () async {
-                    if (todoController.text.isNotEmpty) {
-                      // 할 일 추가
-                      todoProvider.addTodo(_selectedDay, todoController.text);
-
-                      // 알람 설정이 되어 있으면 알림 예약
-                      if (_isAlarmSet && _alarmTime != null) {
-                        NotificationService.showNotification(
-                          0,
-                          'Task for ${_alarmTime.toString()}',
-                          todoController.text,
-                          _alarmTime!,
-                        );
-                      }
-
-                      todoController.clear();
+                  IconButton(
+                    icon: Icon(Icons.close),
+                    onPressed: () {
                       setState(() {
-                        _isAlarmSet = false; // 알람 설정 상태 초기화
-                        _alarmTime = null;
+                        _isOpacityControlVisible = false;
                       });
-                    }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          // 배경 이미지 추가
+          Container(
+            decoration: BoxDecoration(
+              image: _imageFile != null
+                  ? DecorationImage(
+                      image: FileImage(_imageFile!),
+                      fit: BoxFit.cover,
+                      opacity: _opacity,
+                    )
+                  : null,
+            ),
+            child: Column(
+              children: [
+                // 달력 위젯
+                TableCalendar(
+                  firstDay: DateTime.utc(2020, 1, 1),
+                  lastDay: DateTime.utc(2030, 12, 31),
+                  focusedDay: _focusedDay,
+                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
                   },
+                  onPageChanged: (focusedDay) {
+                    _focusedDay = focusedDay;
+                  },
+                ),
+                // 할 일 입력
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: todoController,
+                          decoration: InputDecoration(
+                            hintText: '할일을 입력하세요.',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.alarm),
+                        onPressed: () async {
+                          // 알람 설정 버튼
+                        },
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.add),
+                        onPressed: () async {
+                          if (todoController.text.isNotEmpty) {
+                            await todoProvider.addTodo(
+                              _selectedDay,
+                              todoController.text,
+                              alarmTime: _alarmTime,
+                            );
+                            todoController.clear();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
