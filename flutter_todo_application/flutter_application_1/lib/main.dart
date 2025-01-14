@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'notification_service.dart';  // 알림 서비스 추가
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class Todo {
   String title;
@@ -18,30 +19,68 @@ class TodoProvider with ChangeNotifier {
   final Map<DateTime, List<Todo>> _todos = {};
 
   List<Todo> getTodosForDate(DateTime date) {
-    // 날짜에 맞는 할일 목록 반환
-    return _todos[date] ?? [];
+    final DateTime normalizedDate = DateTime(date.year, date.month, date.day);
+    return _todos[normalizedDate] ?? [];
   }
 
-  void addTodo(DateTime date, String title) {
-    if (_todos[date] == null) {
-      _todos[date] = [];
+  Future<void> addTodo(DateTime date, String title) async {
+    final DateTime normalizedDate = DateTime(date.year, date.month, date.day);
+    if (_todos[normalizedDate] == null) {
+      _todos[normalizedDate] = [];
     }
-    _todos[date]!.add(Todo(
-      title: title,
-    ));
-    notifyListeners();  // 할일 추가 후 상태 변경 알리기
-  }
-
-  void toggleTodoStatus(DateTime date, int index) {
-    _todos[date]![index].isDone = !_todos[date]![index].isDone;
+    _todos[normalizedDate]!.add(Todo(title: title));
+    await _saveData(); // 데이터 저장
     notifyListeners();
   }
 
-  void removeTodo(DateTime date, int index) {
-    _todos[date]!.removeAt(index);
+  Future<void> toggleTodoStatus(DateTime date, int index) async {
+    final DateTime normalizedDate = DateTime(date.year, date.month, date.day);
+    _todos[normalizedDate]![index].isDone = !_todos[normalizedDate]![index].isDone;
+    await _saveData(); // 데이터 저장
     notifyListeners();
+  }
+
+  Future<void> removeTodo(DateTime date, int index) async {
+    final DateTime normalizedDate = DateTime(date.year, date.month, date.day);
+    _todos[normalizedDate]!.removeAt(index);
+    await _saveData(); // 데이터 저장
+    notifyListeners();
+  }
+
+  // 데이터 로딩
+  Future<void> loadTodos() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? todoData = prefs.getString('todos');
+    if (todoData != null) {
+      final Map<String, dynamic> jsonData = jsonDecode(todoData);
+      _todos.clear();
+      jsonData.forEach((key, value) {
+        final DateTime date = DateTime.parse(key);
+        final List<Todo> todoList = (value as List).map((item) {
+          return Todo(
+            title: item['title'],
+            isDone: item['isDone'],
+          );
+        }).toList();
+        _todos[date] = todoList;
+      });
+      notifyListeners();
+    }
+  }
+
+  // 데이터 저장
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, dynamic> jsonData = {};
+    _todos.forEach((key, value) {
+      jsonData[key.toIso8601String()] = value
+          .map((todo) => {'title': todo.title, 'isDone': todo.isDone})
+          .toList();
+    });
+    await prefs.setString('todos', jsonEncode(jsonData));
   }
 }
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,9 +91,11 @@ void main() async {
   // 알림 서비스 초기화
   await NotificationService.init();
 
+  final todoProvider = TodoProvider();
+  await todoProvider.loadTodos();  // 데이터 로딩 추가
   runApp(
     ChangeNotifierProvider(
-      create: (_) => TodoProvider(),
+      create: (_) => todoProvider,  // TodoProvider를 초기화
       child: MyApp(),
     ),
   );
