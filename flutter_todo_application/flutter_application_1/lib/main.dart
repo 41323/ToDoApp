@@ -146,7 +146,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TODO',
+      title: 'TODO👾',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
@@ -177,8 +177,12 @@ TextEditingController todoController = TextEditingController();
     super.initState();
     _selectedDay = DateTime.now();
     _focusedDay = DateTime.now();
-      todoController = TextEditingController(); // 초기화
+    todoController = TextEditingController(); // 초기화
+    _loadImage();
+    _loadOpacity();  // 앱 시작 시 저장된 투명도 값을 불러옴      
   }
+
+
 @override
 void dispose() {
   todoController.dispose(); // 메모리 누수 방지
@@ -218,7 +222,90 @@ Future<void> _setAlarmTime() async {
     }
   }
 }
+  void _openSettingsDrawer() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.image),
+              title: Text('배경 설정'),
+               onTap: _pickImage,  // 이미지 선택
+            ),
+            ListTile(
+              leading: Icon(Icons.opacity),
+              title: Text('투명도 조절'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: Icon(Icons.location_on), 
+              title: Text('지역 설정'), 
+              onTap: () => Navigator.pop(context), 
+            ),            
+          ],
+        );
+      },
+    );
+  }
 
+
+
+  // 이미지 파일 로드 (앱 실행 시 이미지 경로 불러오기)
+  Future<void> _loadImage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final imagePath = prefs.getString('imagePath');
+    if (imagePath != null) {
+      setState(() {
+        _imageFile = File(imagePath);
+      });
+    }
+  }
+
+  // 이미지 선택
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      final appDir = await getApplicationDocumentsDirectory();
+      final fileName = pickedFile.name;
+      final savedImage = await File(pickedFile.path).copy('${appDir.path}/$fileName');
+
+      // 선택한 이미지 경로를 SharedPreferences에 저장
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('imagePath', savedImage.path);
+
+      setState(() {
+        _imageFile = savedImage;
+      });
+    }
+  }
+
+  // 투명도 값 저장
+  Future<void> _saveOpacity(double opacity) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('opacity', opacity);
+  }
+
+  // 저장된 투명도 값 로드
+  Future<void> _loadOpacity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedOpacity = prefs.getDouble('opacity');
+    if (savedOpacity != null) {
+      setState(() {
+        _opacity = savedOpacity;
+      });
+    }
+  }
+
+  // 이미지 투명도 조절
+  void _adjustOpacity(double opacity) {
+    setState(() {
+      _opacity = opacity;
+    });
+    _saveOpacity(opacity);  // 투명도 값 저장
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +314,14 @@ Future<void> _setAlarmTime() async {
     return Scaffold(
       appBar: AppBar(
         title: Text('TODO'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings),
+            onPressed: _openSettingsDrawer,
+          ),
+        ],
       ),
+
       body: Column(
         children: [
           // Calendar widget
