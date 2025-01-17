@@ -21,21 +21,13 @@ class NotificationService {
 
     // 시간대 데이터 초기화
     tz.initializeTimeZones(); 
+    // 한국 타임존으로 설정 (Asia/Seoul)
+    tz.setLocalLocation(tz.getLocation('Asia/Seoul'));    
+
   }
 
   static const MethodChannel _channel = MethodChannel('com.example.flutter_application_1/permissions');
 
-  // 정확한 알람 권한 체크 메서드
-  static Future<bool> checkExactAlarmPermission() async {
-    try {
-      final bool result = await _channel.invokeMethod('checkExactAlarmPermission');
-      print('checkExactAlarmPermission result: $result');
-      return result;
-    } on PlatformException catch (e) {
-      print("Error checking exact alarm permission: ${e.message}");
-      return false;
-    }
-  }
 
   // 정확한 알람 권한 요청 메서드
   static Future<void> requestExactAlarmPermission() async {
@@ -78,8 +70,12 @@ class NotificationService {
   // 알림 예약 메서드
   static Future<void> showNotification(
       int id, String title, String body, DateTime scheduledTime) async {
-    final tz.TZDateTime scheduledDate = tz.TZDateTime.from(scheduledTime, tz.local);
-
+        tz.setLocalLocation(tz.getLocation('Asia/Seoul'));
+final tz.TZDateTime scheduledDate = tz.TZDateTime(tz.local, scheduledTime.year, scheduledTime.month, scheduledTime.day, scheduledTime.hour, scheduledTime.minute, scheduledTime.second);
+final now = tz.TZDateTime.now(tz.local);
+    if (scheduledTime.isBefore(now)) {
+      print("경고: 과거 시간으로 알림을 설정할 수 없습니다.");
+    }
     print('Scheduling notification for $scheduledTime');
     print('Scheduled TZ Date: $scheduledDate');
 
@@ -93,6 +89,7 @@ class NotificationService {
     );
 
     const NotificationDetails notificationDetails =
+
         NotificationDetails(android: androidNotificationDetails);
 
     try {
@@ -108,9 +105,11 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exact,
         matchDateTimeComponents: DateTimeComponents.dateAndTime,
         uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+            UILocalNotificationDateInterpretation.absoluteTime, 
       );
-      print('Notification scheduled successfully.');
+      print('---Scheduling notification for $scheduledTime');
+      print('---Scheduled TZ Date: $scheduledDate'); 
+      print('---Notification scheduled successfully.');
     } catch (e) {
       print('Error scheduling notification: $e');
     }

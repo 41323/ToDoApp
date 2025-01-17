@@ -38,27 +38,28 @@ Future<void> addTodo(DateTime date, String title, {DateTime? alarmTime}) async {
 
   _todos[normalizedDate]!.add(Todo(title: title, alarmTime: alarmTime));
   
-if (alarmTime != null) {
-  print('Scheduling notification at $alarmTime for: $title');
-  
-  try {
-    await NotificationService.showNotification(
-      DateTime.now().millisecondsSinceEpoch,  // 알림 ID
-      'Todo Reminder',
-      title,
-      alarmTime,
-    );
-    print('Notification scheduled successfully.');
-  } catch (e) {
-    print('Error scheduling notification: $e');
+  if (alarmTime != null) {
+    print('Scheduling notification at $alarmTime for: $title');
+    
+    try {
+      final notificationId = DateTime.now().millisecondsSinceEpoch;  // 알림 ID
+      await NotificationService.showNotification(
+        notificationId,  // 알림 ID
+        'Todo Reminder', // 알림 제목
+        title,           // 알림 내용
+        alarmTime,       // 알림 시간
+      );
+      print('Notification scheduled successfully.');
+    } catch (e) {
+      print('Error scheduling notification: $e');
+    }
+  } else {
+    print('No alarm set for this todo.');
   }
-} else {
-  print('No alarm set for this todo.');
-}
+
   await _saveData();
   notifyListeners();
 }
-
 
 
 
@@ -127,6 +128,7 @@ void main() async {
   // NotificationService 초기화 추가
   await NotificationService.initNotification();
   await NotificationService.requestPermissions(); 
+  await NotificationService.initNotification(); 
   final todoProvider = TodoProvider();
   await todoProvider.loadTodos();
   
@@ -198,7 +200,6 @@ Future<void> _setAlarmTime() async {
     });
     print('Alarm time selected: $_alarmTime');
 
-    // 알람 설정 후 자동으로 할 일 추가 시도
     final String todoText = todoController.text.trim();  // 여기 수정함
     if (todoText.isNotEmpty) {
       final todoProvider = Provider.of<TodoProvider>(context, listen: false);

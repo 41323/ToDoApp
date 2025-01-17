@@ -19,13 +19,13 @@ dev_dependencies:
   provider: ^6.0.0  # 상태 관리를 위해 추가
   sqflite: ^2.0.0+3  # 로컬 데이터베이스 사용
   table_calendar: ^3.0.0  # 달력 패키지 추가
-  timezone: ^0.10.0  
+  timezone: ^0.9.0  
   permission_handler: ^11.3.1
   shared_preferences: ^2.2.0
   image_picker: ^1.1.2
   path_provider: ^2.0.9  
   flutter_colorpicker: ^1.1.0 
-  flutter_local_notifications: ^18.0.1   # flutter_local_notifications의 최신 버전
+  flutter_local_notifications: ^18.0.1  # flutter_local_notifications의 최신 버전
 
 flutter:
   uses-material-design: true
